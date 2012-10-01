@@ -12,15 +12,15 @@ sub DESTROY { undef $UV }
 # We have to fall back to Mojo::Reactor::Poll, since EV is unique
 sub new { $UV++ ? Mojo::Reactor::Poll->new : shift->SUPER::new }
 
-sub is_running { my @h=@{UV::handles()}; $running=0 unless $h[0]->{active}; !!$running }
+sub is_running { $running=0 unless scalar(@{UV::handles()}); !!$running }
 
-sub one_tick { $running++; UV::run_once;$running=0 }
+sub one_tick { $running++; UV::run_once(); $running=0; }
 
 sub recurring { shift->_timer(1, @_) }
 
-sub start {$running++;UV::run}
+sub start {$running++;UV::run; shift->stop; }
 
-sub stop {   UV::close($_) for (@{ UV::handles() });$running=0 }
+sub stop { UV::close($_) for (@{ UV::handles() });$running=0; }
 
 sub timer { shift->_timer(0, @_) }
 
