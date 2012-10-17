@@ -5,22 +5,27 @@ use UV;
 use Scalar::Util 'weaken';
 
 my $UV;
-my $running=0;
+my $running = 0;
 
 sub DESTROY { undef $UV }
 
 # We have to fall back to Mojo::Reactor::Poll, since EV is unique
 sub new { $UV++ ? Mojo::Reactor::Poll->new : shift->SUPER::new }
 
-sub is_running { $running=0 unless scalar(@{UV::handles()}); !!$running }
+sub is_running {
+  return 0 unless $running;
+  my $handles = UV::default_loop()->active_handles;
+  $running=0 unless $handles;
+  !!$handles;
+}
 
-sub one_tick { $running++; UV::run_once(); $running=0; }
+sub one_tick { UV::run_once(); }
 
 sub recurring { shift->_timer(1, @_) }
 
-sub start {$running++;UV::run; shift->stop; }
+sub start {$running++; UV::run}
 
-sub stop { UV::close($_) for (@{ UV::handles() });$running=0; }
+sub stop { UV::close($_) for (@{UV::handles()}); $running=0; }
 
 sub timer { shift->_timer(0, @_) }
 
@@ -37,7 +42,7 @@ sub watch {
   if (my $w = $io->{watcher}) { $w->set($fd, $mode) }
   elsif ($mode) {
     weaken $self;
-    $io->{watcher} = UV::poll_start ($fd, $mode, sub { $self->_io($fd, @_) });
+    $io->{watcher} = UV::poll_start($fd, $mode, sub { $self->_io($fd, @_) });
   }
 
   return $self;
@@ -58,7 +63,8 @@ sub _timer {
   my $id = $self->SUPER::_timer(0, 0, $cb);
   weaken $self;
   $self->{timers}{$id}{watcher} = UV::timer_init();
-  UV::timer_start($self->{timers}{$id}{watcher},
+  UV::timer_start(
+    $self->{timers}{$id}{watcher},
     $after => ($recurring ? $after : 0) => sub {
       $self->_sandbox("Timer $id", $self->{timers}{$id}{cb});
       delete $self->{timers}{$id} unless $recurring;
